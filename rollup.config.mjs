@@ -11,7 +11,11 @@ const config = [
       file: 'lib/index.min.js',
       format: 'es',
     },
-    plugins: [externals(), typescript(), terser()],
+    plugins: [
+      externals(),
+      typescript({noEmit: false, outDir: 'lib'}),
+      terser(),
+    ],
     external: [/^@motion-canvas\/core/, /^@motion-canvas\/2d/],
   },
   {
@@ -20,7 +24,7 @@ const config = [
       file: 'lib/index.js',
       format: 'es',
     },
-    plugins: [externals(), typescript()],
+    plugins: [externals(), typescript({noEmit: false, outDir: 'lib'})],
     external: [/^@motion-canvas\/core/, /^@motion-canvas\/2d/],
   },
   {
