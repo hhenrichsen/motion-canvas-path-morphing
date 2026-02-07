@@ -6,6 +6,7 @@ import {
   ThreadGenerator,
   Vector2,
   all,
+  delay,
   lazy,
   threadable,
   TimingFunction,
@@ -117,6 +118,11 @@ export class Latex extends Svg {
       const subNodes = Svg.parseSVGData(subSvg).nodes;
 
       if (subNodes.length === 0) {
+        newNodes.push({
+          id: sub,
+          type: Node,
+          props: {},
+        });
         continue;
       }
 
@@ -142,9 +148,11 @@ export class Latex extends Svg {
       });
     }
     if (oldNodes.length > 0) {
-      useLogger().error({
-        message: 'Matching between Latex SVG and tex parts failed',
-        inspect: this.key,
+      newNodes.push({
+        id: '__structural__',
+        type: Node,
+        props: {},
+        children: [...oldNodes],
       });
     }
 
@@ -159,7 +167,9 @@ export class Latex extends Svg {
   protected texToSvg(subTexs: string[]) {
     const singleTex = subTexs.join('');
     const svg = this.singleTexToSVG(singleTex);
-    this.svgSubTexMap[svg] = subTexs;
+    if (subTexs.length > 1) {
+      this.svgSubTexMap[svg] = subTexs;
+    }
     return svg;
   }
 
@@ -224,6 +234,90 @@ export class Latex extends Svg {
       .filter((c): c is Path | Rect => c instanceof Path || c instanceof Rect);
   }
 
+  private getFragmentShapes(): (Path | Rect)[][] {
+    return this.wrapper.children().map(child => {
+      const children = child.children().length > 0 ? child.children() : [child];
+      return children.filter(
+        (c): c is Path | Rect => c instanceof Path || c instanceof Rect,
+      );
+    });
+  }
+
+  private getTargetFragmentShapes(doc: SVGDocument): (Path | Rect)[][] {
+    return doc.nodes.map(node => {
+      const shape = node.shape;
+      if (shape.children().length > 0) {
+        return shape
+          .children()
+          .filter(
+            (c): c is Path | Rect => c instanceof Path || c instanceof Rect,
+          );
+      }
+      return shape instanceof Path || shape instanceof Rect ? [shape] : [];
+    });
+  }
+
+  private createFragmentMorphAnimations(
+    sourceShapes: (Path | Rect)[],
+    targetShapes: (Path | Rect)[],
+    time: number,
+    timingFunction: TimingFunction,
+  ): ThreadGenerator[] {
+    const animations: ThreadGenerator[] = [];
+    const maxLen = Math.max(sourceShapes.length, targetShapes.length);
+
+    for (let i = 0; i < maxLen; i++) {
+      const from = sourceShapes[i];
+      const to = targetShapes[i];
+
+      if (from && to) {
+        if (from instanceof Path && to instanceof Path) {
+          const fromData = from.data();
+          const toData = to.data();
+          if (this.morpher && fromData && toData && fromData !== toData) {
+            const interpolator = this.morpher.createInterpolator(
+              fromData,
+              toData,
+            );
+            animations.push(
+              tween(time, t => {
+                const progress = timingFunction(t);
+                from.data.context.setter(interpolator(progress));
+              }),
+            );
+          }
+          animations.push(
+            from.position(to.position(), time, timingFunction),
+            from.scale(to.scale(), time, timingFunction),
+          );
+        } else if (from instanceof Rect && to instanceof Rect) {
+          animations.push(
+            from.position(to.position(), time, timingFunction),
+            from.scale(to.scale(), time, timingFunction),
+            from.size(to.size(), time, timingFunction),
+          );
+        } else {
+          animations.push(from.opacity(0, time * 0.3, timingFunction));
+          const clone = to.clone();
+          clone.opacity(0);
+          this.wrapper.add(clone);
+          animations.push(
+            delay(time * 0.7, clone.opacity(1, time * 0.3, timingFunction)),
+          );
+        }
+      } else if (from && !to) {
+        animations.push(from.opacity(0, time * 0.3, timingFunction));
+      } else if (!from && to) {
+        const clone = to.clone();
+        clone.opacity(0);
+        this.wrapper.add(clone);
+        animations.push(clone.opacity(1, time, timingFunction));
+      }
+    }
+
+    return animations;
+  }
+
   @threadable()
   protected *tweenTex(
     value: string[],
@@ -235,6 +329,7 @@ export class Latex extends Svg {
     if (!this.morpher) {
       const newSVG = this.texToSvg(parsedValue);
       yield* this.svg(newSVG, time, timingFunction);
+      this.tex.context.setter(parsedValue);
       this.svg(this.latexSVG);
       return;
     }
@@ -329,5 +424,107 @@ export class Latex extends Svg {
 
     this.svg.context.setter(newSVG);
     this.tex.context.setter(parsedValue);
+    this.wrapper.children(this.documentNodes);
+  }
+
+  @threadable()
+  public *map(
+    value: string[] | string,
+    mapping: number[][],
+    time: number,
+    timingFunction?: TimingFunction,
+  ): ThreadGenerator {
+    const logger = useLogger();
+    const parsedValue = this.tex.context.parse(value);
+    const newSVG = this.texToSvg(parsedValue);
+    const targetDoc = this.parseSVG(newSVG);
+
+    if (!this.morpher) {
+      yield* this.svg(newSVG, time, timingFunction);
+      this.tex.context.setter(parsedValue);
+      this.svg(this.latexSVG);
+      return;
+    }
+
+    const sourceFragments = this.getFragmentShapes();
+    const targetFragments = this.getTargetFragmentShapes(targetDoc);
+
+    const mappedTargetIndices = new Set<number>();
+    const animations: ThreadGenerator[] = [];
+
+    for (let srcIdx = 0; srcIdx < mapping.length; srcIdx++) {
+      const targetIndices = mapping[srcIdx];
+      const srcShapes = sourceFragments[srcIdx];
+
+      if (!srcShapes || srcShapes.length === 0) {
+        continue;
+      }
+
+      if (!targetIndices || targetIndices.length === 0) {
+        for (const shape of srcShapes) {
+          animations.push(shape.opacity(0, time * 0.3, timingFunction));
+        }
+        continue;
+      }
+
+      for (let t = 0; t < targetIndices.length; t++) {
+        const tgtIdx = targetIndices[t];
+
+        if (tgtIdx < 0 || tgtIdx >= targetFragments.length) {
+          logger.warn(
+            `texMap: target index ${tgtIdx} is out of bounds (0-${targetFragments.length - 1})`,
+          );
+          continue;
+        }
+
+        mappedTargetIndices.add(tgtIdx);
+        const tgtShapes = targetFragments[tgtIdx];
+
+        if (t === 0) {
+          animations.push(
+            ...this.createFragmentMorphAnimations(
+              srcShapes,
+              tgtShapes,
+              time,
+              timingFunction ?? ((v: number) => v),
+            ),
+          );
+        } else {
+          const clonedSrc = srcShapes.map(shape => {
+            const clone = shape.clone();
+            this.wrapper.add(clone);
+            return clone;
+          });
+          animations.push(
+            ...this.createFragmentMorphAnimations(
+              clonedSrc,
+              tgtShapes,
+              time,
+              timingFunction ?? ((v: number) => v),
+            ),
+          );
+        }
+      }
+    }
+
+    for (let tgtIdx = 0; tgtIdx < targetFragments.length; tgtIdx++) {
+      if (mappedTargetIndices.has(tgtIdx)) {
+        continue;
+      }
+
+      const tgtShapes = targetFragments[tgtIdx];
+      for (const shape of tgtShapes) {
+        const clone = shape.clone();
+        clone.opacity(0);
+        this.wrapper.add(clone);
+        animations.push(clone.opacity(1, time, timingFunction));
+      }
+    }
+
+    yield* all(...animations);
+
+    this.svg.context.setter(newSVG);
+    this.tex.context.setter(parsedValue);
+    this.wrapper.children(this.documentNodes);
   }
 }

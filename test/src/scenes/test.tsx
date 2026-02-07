@@ -214,15 +214,16 @@ export default makeScene2D(function* (view) {
 
   yield* waitFor(2);
 
+  const pmatrixTex =
+    '\\begin{pmatrix} {{a}} & {{b}} \\\\ {{c}} & {{d}} \\end{pmatrix}';
+  const pmatrixMap: number[][] = [[1], [], [3], [], [5], [], [7]];
+
   yield* all(
-    flubberLatex().tex('\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}', 1.5),
-    kuteLatex().tex('\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}', 1.5),
-    wildernessLatex().tex(
-      '\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}',
-      1.5,
-    ),
-    manimLatex().tex('\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}', 1.5),
-    fixedLatex().tex('\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}', 1.5),
+    flubberLatex().map(pmatrixTex, pmatrixMap, 1.5),
+    kuteLatex().map(pmatrixTex, pmatrixMap, 1.5),
+    wildernessLatex().map(pmatrixTex, pmatrixMap, 1.5),
+    manimLatex().map(pmatrixTex, pmatrixMap, 1.5),
+    fixedLatex().map(pmatrixTex, pmatrixMap, 1.5),
   );
 
   yield* waitFor(2);
@@ -259,6 +260,39 @@ export default makeScene2D(function* (view) {
     wildernessLatex().scale(1, 1),
     manimLatex().scale(1, 1),
     fixedLatex().scale(1, 1),
+  );
+
+  yield* waitFor(1);
+
+  yield* all(
+    flubberLatex().scale(0.5, 1),
+    kuteLatex().scale(0.5, 1),
+    wildernessLatex().scale(0.5, 1),
+    manimLatex().scale(0.5, 1),
+    fixedLatex().scale(0.5, 1),
+  );
+
+  yield* all(
+    flubberLatex().tex(
+      'f(n) = \\begin{cases} a \\\\ b \\\\ c \\\\ \\vdots \\end{cases}',
+      1.5,
+    ),
+    kuteLatex().tex(
+      'f(n) = \\begin{cases} a \\\\ b \\\\ c \\\\ \\vdots \\end{cases}',
+      1.5,
+    ),
+    wildernessLatex().tex(
+      'f(n) = \\begin{cases} a \\\\ b \\\\ c \\\\ \\vdots \\end{cases}',
+      1.5,
+    ),
+    manimLatex().tex(
+      'f(n) = \\begin{cases} a \\\\ b \\\\ c \\\\ \\vdots \\end{cases}',
+      1.5,
+    ),
+    fixedLatex().tex(
+      'f(n) = \\begin{cases} a \\\\ b \\\\ c \\\\ \\vdots \\end{cases}',
+      1.5,
+    ),
   );
 
   yield* waitFor(4);

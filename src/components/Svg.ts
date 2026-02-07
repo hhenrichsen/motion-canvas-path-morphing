@@ -360,7 +360,7 @@ export class Svg extends Shape {
   }
 
   @computed()
-  private documentNodes() {
+  protected documentNodes() {
     return this.document().nodes.map(node => node.shape);
   }
 
